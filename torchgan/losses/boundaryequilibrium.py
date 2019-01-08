@@ -124,7 +124,7 @@ class BoundaryEquilibriumDiscriminatorLoss(DiscriminatorLoss):
             self.k = 1.0
 
     def train_ops(self, generator, discriminator, optimizer_discriminator, real_inputs,
-                  device, labels=None):
+                  noise_prior, label_prior, labels=None):
         r"""Defines the standard ``train_ops`` used by boundary equilibrium loss.
 
         The ``standard optimization algorithm`` for the ``discriminator`` defined in this train_ops
@@ -153,14 +153,18 @@ class BoundaryEquilibriumDiscriminatorLoss(DiscriminatorLoss):
         """
         if self.override_train_ops is not None:
             return self.override_train_ops(self, generator, discriminator, optimizer_discriminator,
-                   real_inputs, device, labels)
+                   real_inputs, noise_prior, label_prior, labels)
         else:
+            if noise_prior is None:
+                raise Exception('GAN model cannot be trained without sampling noise')
             if labels is None and (generator.label_type == 'required' or discriminator.label_type == 'required'):
                 raise Exception('GAN model requires labels for training')
+            if label_prior is None and generator.label_type == 'generated':
+                raise Exception('GAN Model cannot be trained without sampling labels')
             batch_size = real_inputs.size(0)
-            noise = torch.randn(batch_size, generator.encoding_dims, device=device)
+            noise = noise_prior(batch_size, generator.encoding_dims)
             if generator.label_type == 'generated':
-                label_gen = torch.randint(0, generator.num_classes, (batch_size,), device=device)
+                label_gen = label_prior(batch_size)
             optimizer_discriminator.zero_grad()
             if discriminator.label_type == 'none':
                 dx = discriminator(real_inputs)
@@ -179,8 +183,10 @@ class BoundaryEquilibriumDiscriminatorLoss(DiscriminatorLoss):
             else:
                 if generator.label_type == 'generated':
                     dgz = discriminator(fake.detach(), label_gen)
-                else:
+                elif generator.label_type == 'required':
                     dgz = discriminator(fake.detach(), labels)
+                else:
+                    raise Exception('Discriminator requires labels but Generator generates unlabelled samples')
             loss_total, loss_real, loss_fake = self.forward(dx, dgz)
             loss_total.backward()
             optimizer_discriminator.step()
