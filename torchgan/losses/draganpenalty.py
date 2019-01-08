@@ -63,7 +63,7 @@ class DraganGradientPenalty(DiscriminatorLoss):
         return dragan_gradient_penalty(interpolate, d_interpolate, self.k, self.reduction)
 
     def train_ops(self, generator, discriminator, optimizer_discriminator, real_inputs,
-                  device, labels=None):
+                  device, label_prior, labels=None):
         r"""Defines the standard ``train_ops`` used by the DRAGAN Gradient Penalty.
 
         The ``standard optimization algorithm`` for the ``discriminator`` defined in this train_ops
@@ -99,7 +99,7 @@ class DraganGradientPenalty(DiscriminatorLoss):
             optimizer_discriminator.zero_grad()
             interpolate = real_inputs + (1 - alpha) * 0.5 * real_inputs.std() * beta
             if generator.label_type == 'generated':
-                label_gen = torch.randint(0, generator.num_classes, (real_inputs.size(0),), device=device)
+                label_gen = label_prior(real_inputs.size(0))
             if discriminator.label_type == 'none':
                 d_interpolate = discriminator(interpolate)
             else:
