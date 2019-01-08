@@ -3,6 +3,7 @@ import torch
 import torchvision
 from warnings import warn
 from inspect import signature, _empty
+from ..priors.prior import NoisePrior, LabelPrior
 from ..models.model import Generator, Discriminator
 from ..losses.loss import GeneratorLoss, DiscriminatorLoss
 from ..logging.logger import Logger
@@ -67,9 +68,9 @@ class Trainer(object):
                     [MinimaxGeneratorLoss(), MinimaxDiscriminatorLoss()],
                     sample_size=64, epochs=20)
     """
-    def __init__(self, models, losses_list, metrics_list=None, device=torch.device("cuda:0"),
-                 ncritic=None, epochs=5, sample_size=8, checkpoints="./model/gan", retain_checkpoints=5,
-                 recon="./images", log_dir=None, test_noise=None, nrow=8, **kwargs):
+    def __init__(self, models, losses_list, noise_prior=NoisePrior(), label_prior=LabelPrior(), metrics_list=None,
+                 device=torch.device("cuda:0"), ncritic=None, epochs=5, sample_size=8, checkpoints="./model/gan",
+                 retain_checkpoints=5, recon="./images", log_dir=None, test_noise=None, nrow=8, **kwargs):
         self.device = device
         self.model_names = []
         self.optimizer_names = []
@@ -100,6 +101,9 @@ class Trainer(object):
         self.losses = {}
         for loss in losses_list:
             self.losses[type(loss).__name__] = loss
+
+        self.noise_prior = noise_prior
+        self.label_prior = label_prior
 
         if metrics_list is None:
             self.metrics = None
