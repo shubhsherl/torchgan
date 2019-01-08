@@ -56,7 +56,8 @@ class EnergyBasedGeneratorLoss(GeneratorLoss):
         """
         return energy_based_generator_loss(dgz, self.reduction)
 
-    def train_ops(self, generator, discriminator, optimizer_generator, device, batch_size, labels=None):
+    def train_ops(self, generator, discriminator, optimizer_generator,
+            noise_prior, label_prior, batch_size, labels=None):
         r"""This function sets the ``embeddings`` attribute of the ``AutoEncodingDiscriminator`` to
         ``False`` and calls the ``train_ops`` of the ``GeneratorLoss``. After the call the
         attribute is again set to ``True``.
@@ -75,16 +76,18 @@ class EnergyBasedGeneratorLoss(GeneratorLoss):
             Scalar value of the loss.
         """
         if self.override_train_ops is not None:
-            return self.override_train_ops(generator, discriminator, optimizer_generator, device, batch_size, labels)
+            return self.override_train_ops(generator, discriminator, optimizer_generator,
+                    noise_prior, label_prior, batch_size, labels)
         else:
             if isinstance(discriminator, AutoEncodingDiscriminator):
                 setattr(discriminator, "embeddings", False)
             loss = super(EnergyBasedGeneratorLoss, self).train_ops(generator, discriminator,
-                optimizer_generator, device, batch_size, labels)
+                optimizer_generator, noise_prior, label_prior, batch_size, labels)
             if isinstance(discriminator, AutoEncodingDiscriminator):
                 setattr(discriminator, "embeddings", True)
             return loss
 
+# FIXME(Aniket1998): Loss specifically assumes the Autoencoding generator
 class EnergyBasedPullingAwayTerm(GeneratorLoss):
     r"""Energy Based Pulling Away Term from `"Energy Based Generative Adversarial Network
     by Zhao et. al." <https://arxiv.org/abs/1609.03126>`_ paper.
@@ -121,7 +124,8 @@ class EnergyBasedPullingAwayTerm(GeneratorLoss):
         """
         return self.pt_ratio * energy_based_pulling_away_term(d_hid)
 
-    def train_ops(self, generator, discriminator, optimizer_generator, device, batch_size, labels=None):
+    def train_ops(self, generator, discriminator, optimizer_generator,
+            noise_prior, label_prior, batch_size, labels=None):
         r"""This function extracts the hidden embeddings of the discriminator network. The furthur
         computation is same as the standard train_ops.
 
@@ -145,7 +149,8 @@ class EnergyBasedPullingAwayTerm(GeneratorLoss):
             Scalar value of the loss.
         """
         if self.override_train_ops is not None:
-            return self.override_train_ops(generator, discriminator, optimizer_generator, device, batch_size, labels)
+            return self.override_train_ops(generator, discriminator, optimizer_generator,
+                    noise_prior, label_prior, batch_size, labels)
         else:
             if not isinstance(discriminator, AutoEncodingDiscriminator):
                 raise Exception('EBGAN PT requires the Discriminator to be a AutoEncoder')
@@ -153,7 +158,9 @@ class EnergyBasedPullingAwayTerm(GeneratorLoss):
                 raise Exception('EBGAN PT supports models which donot require labels')
             if not discriminator.embeddings:
                 raise Exception('EBGAN PT requires the embeddings for loss computation')
-            noise = torch.randn(batch_size, generator.encoding_dims, device=device)
+            if noise_prior is None:
+                raise Exception('GAN model cannot be trained without sampling noise')
+            noise = noise_prior(batch_size, generator.encoding_dims)
             optimizer_generator.zero_grad()
             fake = generator(noise)
             d_hid, dgz = discriminator(fake)
@@ -222,8 +229,8 @@ class EnergyBasedDiscriminatorLoss(DiscriminatorLoss):
         """
         return energy_based_discriminator_loss(dx, dgz, self.margin, self.reduction)
 
-    def train_ops(self, generator, discriminator, optimizer_discriminator, real_inputs, device,
-                  batch_size, labels=None):
+    def train_ops(self, generator, discriminator, optimizer_discriminator, real_inputs,
+                  noise_prior, label_prior, batch_size, labels=None):
         r"""This function sets the ``embeddings`` attribute of the ``AutoEncodingDiscriminator`` to
         ``False`` and calls the ``train_ops`` of the ``DiscriminatorLoss``. After the call the
         attribute is again set to ``True``.
@@ -244,12 +251,12 @@ class EnergyBasedDiscriminatorLoss(DiscriminatorLoss):
         """
         if self.override_train_ops is not None:
             return self.override_train_ops(self, generator, discriminator, optimizer_discriminator,
-                   real_inputs, device, labels)
+                   real_inputs, noise_prior, label_prior, labels)
         else:
             if isinstance(discriminator, AutoEncodingDiscriminator):
                 setattr(discriminator, "embeddings", False)
             loss = super(EnergyBasedDiscriminatorLoss, self).train_ops(generator, discriminator,
-                optimizer_discriminator, real_inputs, device, labels)
+                optimizer_discriminator, real_inputs, noise_prior, label_prior, labels)
             if isinstance(discriminator, AutoEncodingDiscriminator):
                 setattr(discriminator, "embeddings", True)
             return loss
