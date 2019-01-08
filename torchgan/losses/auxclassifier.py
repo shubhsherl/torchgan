@@ -48,25 +48,31 @@ class AuxiliaryClassifierGeneratorLoss(GeneratorLoss):
         Returns:
             Scalar value of the loss.
         """
-    def train_ops(self, generator, discriminator, optimizer_generator, device, batch_size, labels=None):
+    def train_ops(self, generator, discriminator, optimizer_generator,
+            noise_prior, label_prior, batch_size, labels=None):
         if self.override_train_ops is not None:
-            return self.override_train_ops(generator, discriminator, optimizer_generator, device, batch_size, labels)
+            return self.override_train_ops(generator, discriminator, optimizer_generator,
+                    noise_prior, label_prior, batch_size, labels)
         if generator.label_type == 'required' and labels is None:
             raise Exception('GAN model requires label for training')
-        noise = torch.randn(batch_size, generator.encoding_dims, device=device)
-        optimizer_generator.zero_grad()
+        if noise_prior is None:
+            raise Exception('GAN model cannot be trained without sampling noise')
+        if label_prior is None and generator.label_type == 'generated':
+            raise Exception('GAN Model cannot be trained without sampling labels')
         if generator.label_type == 'none':
-            raise Exception('Incorrect Model: ACGAN generator must require labels')
+            raise Exception('Incorrect Model: ACGAN generator must require labels for training')
+
+        noise = noise_prior(batch_size, generator.encoding_dims)
+        optimizer_generator.zero_grad()
         if generator.label_type == 'required':
             fake = generator(noise, labels)
         elif generator.label_type == 'generated':
-            label_gen = torch.randint(0, generator.num_classes, (batch_size,), device=device)
+            label_gen = label_prior(batch_size)
             fake = generator(noise, label_gen)
         cgz = discriminator(fake, mode='classifier')
         if generator.label_type == 'required':
             loss = self.forward(cgz, labels)
         else:
-            label_gen = label_gen.type(torch.LongTensor).to(device)
             loss = self.forward(cgz, label_gen)
         loss.backward()
         optimizer_generator.step()
@@ -87,7 +93,8 @@ class AuxiliaryClassifierDiscriminatorLoss(DiscriminatorLoss):
     def forward(self, logits, labels):
         return F.cross_entropy(logits, labels, reduction=self.reduction)
 
-    def train_ops(self, generator, discriminator, optimizer_discriminator, real_inputs, device, labels=None):
+    def train_ops(self, generator, discriminator, optimizer_discriminator,
+            real_inputs, noise_prior, label_prior, labels=None):
         r"""Defines the standard ``train_ops`` used by the Auxiliary Classifier discriminator loss.
 
         The ``standard optimization algorithm`` for the ``discriminator`` defined in this train_ops
@@ -117,25 +124,29 @@ class AuxiliaryClassifierDiscriminatorLoss(DiscriminatorLoss):
         """
         if self.override_train_ops is not None:
             return self.override_train_ops(generator, discriminator, optimizer_discriminator,
-                    real_inputs, device, labels)
+                    real_inputs, noise_prior, label_prior, labels)
+        if noise_prior is None:
+            raise Exception('GAN model cannot be trained without sampling noise')
         if labels is None:
             raise Exception('ACGAN Discriminator requires labels for training')
-        if generator.label_type is 'none':
+        if label_prior is None and generator.label_type == 'generated':
+            raise Exception('GAN Model cannot be trained without sampling labels')
+        if generator.label_type == 'none':
             raise Exception('Incorrect Model: ACGAN generator must require labels for training')
+
         batch_size = real_inputs.size(0)
-        noise = torch.randn(batch_size, generator.encoding_dims, device=device)
+        noise = noise_prior(batch_size, generator.encoding_dims)
         optimizer_discriminator.zero_grad()
         cx = discriminator(real_inputs, mode='classifier')
         if generator.label_type == 'required':
             fake = generator(noise, labels)
         elif generator.label_type == 'generated':
-            label_gen = torch.randint(0, generator.num_classes, (batch_size,), device=device)
+            label_gen = label_prior(batch_size)
             fake = generator(noise, label_gen)
         cgz = discriminator(fake, mode='classifier')
         if generator.label_type == 'required':
             loss = self.forward(cgz, labels) + self.forward(cx, labels)
         else:
-            label_gen = label_gen.type(torch.LongTensor).to(device)
             loss = self.forward(cgz, label_gen) + self.forward(cx, labels)
         loss.backward()
         optimizer_discriminator.step()
