@@ -36,7 +36,8 @@ class GeneratorLoss(nn.Module):
         """
         self.arg_map.update(value)
 
-    def train_ops(self, generator, discriminator, optimizer_generator, device, batch_size, labels=None):
+    def train_ops(self, generator, discriminator, optimizer_generator,
+                  noise_prior, label_prior, batch_size, labels=None):
         r"""Defines the standard ``train_ops`` used by most losses. Losses which have a different
         training procedure can either ``subclass`` it **(recommended approach)** or make use of
         ``override_train_ops`` argument.
@@ -64,27 +65,37 @@ class GeneratorLoss(nn.Module):
             Scalar value of the loss.
         """
         if self.override_train_ops is not None:
-            return self.override_train_ops(generator, discriminator, optimizer_generator, device, batch_size, labels)
+            return self.override_train_ops(generator, discriminator, optimizer_generator,
+                    noise_prior, label_prior, batch_size, labels)
         else:
+            if noise_prior is None:
+                raise Exception('GAN model cannot be trained without sampling noise')
             if labels is None and generator.label_type == 'required':
                 raise Exception('GAN model requires labels for training')
-            noise = torch.randn(batch_size, generator.encoding_dims, device=device)
+            if label_prior is None and generator.label_type == 'generated':
+                raise Exception('GAN Model cannot be trained without sampling labels')
+            noise = noise_prior(batch_size, generator.encoding_dims)
             optimizer_generator.zero_grad()
             if generator.label_type == 'generated':
-                label_gen = torch.randint(0, generator.num_classes, (batch_size,), device=device)
+                label_gen = label_prior(batch_size)
             if generator.label_type == 'none':
                 fake = generator(noise)
             elif generator.label_type == 'required':
                 fake = generator(noise, labels)
             elif generator.label_type == 'generated':
                 fake = generator(noise, label_gen)
+
             if discriminator.label_type == 'none':
                 dgz = discriminator(fake)
             else:
+                # Since discriminator is recieving samples from generator, the labels should be consistent
+                # with the ones passed in the generator
                 if generator.label_type == 'generated':
                     dgz = discriminator(fake, label_gen)
-                else:
+                elif generator.label_type == 'required':
                     dgz = discriminator(fake, labels)
+                else:
+                    raise Exception('Discriminator requires labels but Generator generates unlabelled samples')
             loss = self.forward(dgz)
             loss.backward()
             optimizer_generator.step()
@@ -124,8 +135,8 @@ class DiscriminatorLoss(nn.Module):
         """
         self.arg_map.update(value)
 
-    def train_ops(self, generator, discriminator, optimizer_discriminator, real_inputs, device,
-                  labels=None):
+    def train_ops(self, generator, discriminator, optimizer_discriminator, real_inputs, noise_prior,
+                  label_prior, labels=None):
         r"""Defines the standard ``train_ops`` used by most losses. Losses which have a different
         training procedure can either ``subclass`` it **(recommended approach)** or make use of
         ``override_train_ops`` argument.
@@ -156,14 +167,18 @@ class DiscriminatorLoss(nn.Module):
         """
         if self.override_train_ops is not None:
             return self.override_train_ops(self, generator, discriminator, optimizer_discriminator,
-                   real_inputs, device, labels)
+                   real_inputs, noise_prior, label_prior, labels)
         else:
+            if noise_prior is None:
+                raise Exception('GAN model cannot be trained without sampling noise')
             if labels is None and (generator.label_type == 'required' or discriminator.label_type == 'required'):
                 raise Exception('GAN model requires labels for training')
+            if label_prior is None and generator.label_type == 'generated':
+                raise Exception('GAN Model cannot be trained without sampling labels')
             batch_size = real_inputs.size(0)
-            noise = torch.randn(batch_size, generator.encoding_dims, device=device)
+            noise = noise_prior(batch_size, generator.encoding_dims)
             if generator.label_type == 'generated':
-                label_gen = torch.randint(0, generator.num_classes, (batch_size,), device=device)
+                label_gen = label_prior(batch_size)
             optimizer_discriminator.zero_grad()
             if discriminator.label_type == 'none':
                 dx = discriminator(real_inputs)
@@ -177,13 +192,16 @@ class DiscriminatorLoss(nn.Module):
                 fake = generator(noise, labels)
             else:
                 fake = generator(noise, label_gen)
+
             if discriminator.label_type == 'none':
                 dgz = discriminator(fake.detach())
             else:
                 if generator.label_type == 'generated':
                     dgz = discriminator(fake.detach(), label_gen)
-                else:
+                elif generator.label_type == 'required':
                     dgz = discriminator(fake.detach(), labels)
+                else:
+                    raise Exception('Discriminator requires labels but Generator generates unlabelled samples')
             loss = self.forward(dx, dgz)
             loss.backward()
             optimizer_discriminator.step()
