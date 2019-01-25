@@ -1,5 +1,4 @@
 import torch
-from math import ceil, log
 import torch.nn as nn
 import torch.nn.functional as F
 from ..models import HybridGenerator, AutoEncodingDiscriminator, Discriminator
@@ -13,8 +12,8 @@ class AdversarialAutoEncodingGenerator(HybridGenerator):
         model = AutoEncodingDiscriminator(in_size=out_size, in_channels=out_channels, encoding_dims=encoding_dims,
                     step_channels=step_channels, scale_factor=scale_factor, batchnorm=batchnorm,
                     nonlinearity=nonlinearity, last_nonlinearity=last_nonlinearity, energy=False, embeddings=True,
-                    label_type=label_type):
-        self.embeddings = embeddings
+                    label_type=label_type)
+        self.embeddings = model.embeddings
         self.init_dim = model.init_dim
         self.decoder = model.decoder
         self.encoder = model.encoder
