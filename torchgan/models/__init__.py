@@ -4,3 +4,4 @@ from .conditional import *
 from .autoencoding import *
 from .infogan import *
 from .acgan import *
+from .aaemodel import *
